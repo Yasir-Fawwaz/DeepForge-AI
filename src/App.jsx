@@ -7,6 +7,10 @@ export default function ChatAssistantPreview() {
   const [input, setInput] = useState("");
   const [showWelcome, setShowWelcome] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [loading, setLoading] = useState(false);
+
+  // 🧠 Replace this with your actual Hugging Face Space endpoint
+  const API_URL = "https://yasiruddinfawwaz-chatbot-backend.hf.space/chat";
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -17,18 +21,51 @@ export default function ChatAssistantPreview() {
     }
   }, [messages]);
 
-  const sendMessage = () => {
-    if (!input.trim()) return;
-    const newMsg = { id: Date.now(), sender: "user", text: input };
-    setMessages([...messages, newMsg]);
-    setInput("");
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
 
-    setTimeout(() => {
+    const userMessage = input;
+    setInput("");
+    setMessages((prev) => [...prev, { id: Date.now(), sender: "user", text: userMessage }]);
+    setLoading(true);
+
+    try {
+      // Build chat history for the backend
+      const history = [];
+      for (let i = 0; i < messages.length; i += 2) {
+        const user = messages[i]?.text || "";
+        const bot = messages[i + 1]?.text || "";
+        if (user && bot) history.push([user, bot]);
+      }
+
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMessage, history }),
+      });
+
+      const data = await response.json();
+
+      if (data.reply) {
+        setMessages((prev) => [
+          ...prev,
+          { id: Date.now() + 1, sender: "assistant", text: data.reply },
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { id: Date.now() + 1, sender: "assistant", text: "⚠️ No response from server." },
+        ]);
+      }
+    } catch (err) {
+      console.error(err);
       setMessages((prev) => [
         ...prev,
-        { id: Date.now() + 1, sender: "assistant", text: "That's an interesting question. Let me help with that..." },
+        { id: Date.now() + 1, sender: "assistant", text: "❌ Error connecting to backend." },
       ]);
-    }, 1000);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -80,12 +117,15 @@ export default function ChatAssistantPreview() {
       </motion.div>
 
       {/* Main Chat Section */}
-      <div className={`flex-1 flex flex-col relative overflow-hidden transition-all duration-300 ${sidebarOpen ? 'ml-0' : ''}`}>
+      <div className="flex-1 flex flex-col relative overflow-hidden">
         {/* Top Bar */}
         <div className="w-full bg-black/40 border-b border-white/10 backdrop-blur-md flex items-center justify-center px-6 py-3 z-30 absolute top-0 left-0">
           <div className="flex items-center gap-2">
             <Zap size={22} className="text-[#00ffaa]" />
-            <h1 className="text-lg font-medium text-white"><span className="font-normal text-gray-200">DeepForge</span> <span className="font-bold text-white">AI</span></h1>
+            <h1 className="text-lg font-medium text-white">
+              <span className="font-normal text-gray-200">DeepForge</span>{" "}
+              <span className="font-bold text-white">AI</span>
+            </h1>
           </div>
           <div className="absolute right-6 flex items-center gap-4">
             <button className="text-gray-400 hover:text-white transition">
@@ -127,13 +167,14 @@ export default function ChatAssistantPreview() {
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="Ask anything..."
                   className="flex-1 bg-transparent text-white placeholder-gray-400 outline-none px-2"
-                  onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                  onKeyDown={(e) => e.key === "Enter" && sendMessage()}
                 />
                 <button
                   onClick={sendMessage}
-                  className="bg-[#00ffaa]/20 hover:bg-[#00ffaa]/30 text-[#00ffaa] p-3 rounded-full transition"
+                  disabled={loading}
+                  className="bg-[#00ffaa]/20 hover:bg-[#00ffaa]/30 text-[#00ffaa] p-3 rounded-full transition disabled:opacity-50"
                 >
-                  <Send className="w-4 h-4" />
+                  {loading ? "..." : <Send className="w-4 h-4" />}
                 </button>
               </motion.div>
             </motion.div>
@@ -150,20 +191,15 @@ export default function ChatAssistantPreview() {
               transition={{ duration: 0.4 }}
               className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
             >
-              {msg.sender === "user" ? (
-                <div className="max-w-[75%] px-4 py-3 rounded-2xl shadow-lg bg-[#111111]/90 text-gray-100">
-                  {msg.text}
-                </div>
-              ) : (
-                <motion.div
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ duration: 0.6, ease: "easeOut" }}
-                  className="max-w-[75%] px-4 py-3 rounded-2xl bg-white/10 backdrop-blur-md text-gray-100 leading-relaxed shadow-md"
-                >
-                  {msg.text}
-                </motion.div>
-              )}
+              <div
+                className={`max-w-[75%] px-4 py-3 rounded-2xl shadow-lg ${
+                  msg.sender === "user"
+                    ? "bg-[#111111]/90 text-gray-100"
+                    : "bg-white/10 backdrop-blur-md text-gray-100"
+                }`}
+              >
+                {msg.text}
+              </div>
             </motion.div>
           ))}
         </div>
@@ -174,7 +210,11 @@ export default function ChatAssistantPreview() {
             initial={{ y: 0, opacity: 1 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ duration: 0.5, ease: "easeOut" }}
-            className={`fixed bottom-6 ${sidebarOpen ? 'left-[270px] w-[calc(100%-320px)]' : 'left-1/2 -translate-x-1/2 w-[90%] max-w-3xl'} bg-black/60 backdrop-blur-xl rounded-full border border-white/10 shadow-lg flex items-center gap-3 px-5 py-3 transition-all`}
+            className={`fixed bottom-6 ${
+              sidebarOpen
+                ? "left-[270px] w-[calc(100%-320px)]"
+                : "left-1/2 -translate-x-1/2 w-[90%] max-w-3xl"
+            } bg-black/60 backdrop-blur-xl rounded-full border border-white/10 shadow-lg flex items-center gap-3 px-5 py-3 transition-all`}
           >
             <input
               type="text"
@@ -182,13 +222,14 @@ export default function ChatAssistantPreview() {
               onChange={(e) => setInput(e.target.value)}
               placeholder="Type a message…"
               className="flex-1 bg-transparent text-white placeholder-gray-400 outline-none"
-              onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
             />
             <button
               onClick={sendMessage}
-              className="bg-[#00ffaa]/20 hover:bg-[#00ffaa]/30 text-[#00ffaa] px-5 py-2 rounded-full font-medium flex items-center gap-2 transition-all"
+              disabled={loading}
+              className="bg-[#00ffaa]/20 hover:bg-[#00ffaa]/30 text-[#00ffaa] px-5 py-2 rounded-full font-medium flex items-center gap-2 transition-all disabled:opacity-50"
             >
-              <Send className="w-4 h-4" />
+              {loading ? "..." : <Send className="w-4 h-4" />}
             </button>
           </motion.div>
         )}
@@ -196,4 +237,3 @@ export default function ChatAssistantPreview() {
     </div>
   );
 }
-  
